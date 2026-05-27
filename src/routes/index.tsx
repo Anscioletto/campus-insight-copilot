@@ -602,8 +602,21 @@ function MessageBubble({ message }: { message: Message }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[78%] rounded-2xl rounded-tr-sm bg-primary text-primary-foreground px-4 py-2.5 text-sm shadow-elegant">
-          {message.content}
+        <div className="max-w-[78%] flex flex-col items-end gap-1.5">
+          {message.attachment && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl rounded-br-sm bg-primary/10 border border-primary/20 text-primary text-xs">
+              <FileText className="h-3.5 w-3.5 shrink-0" />
+              <span className="font-medium truncate max-w-[220px]">{message.attachment.name}</span>
+              <span className="text-[10px] text-primary/70">
+                {(message.attachment.size / 1024).toFixed(1)} KB
+              </span>
+            </div>
+          )}
+          {message.content && (
+            <div className="rounded-2xl rounded-tr-sm bg-primary text-primary-foreground px-4 py-2.5 text-sm shadow-elegant">
+              <RichText content={message.content} />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -618,10 +631,62 @@ function MessageBubble({ message }: { message: Message }) {
           <RichText content={message.content} />
         </div>
         {message.table && <NcTable rows={message.table} />}
+        {message.analysis && <DocAnalysisCard analysis={message.analysis} />}
       </div>
     </div>
   );
 }
+
+function DocAnalysisCard({ analysis }: { analysis: DocAnalysis }) {
+  const sevMap = {
+    ok: { dot: "bg-success", label: "OK", cls: "text-success" },
+    warn: { dot: "bg-warning", label: "Attenzione", cls: "text-warning" },
+    crit: { dot: "bg-destructive", label: "Critico", cls: "text-destructive" },
+  };
+  return (
+    <div className="rounded-xl border border-border bg-surface overflow-hidden shadow-elegant">
+      <div className="px-4 py-2.5 border-b border-border bg-gradient-to-r from-ai/5 to-primary/5 flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0">
+          <FileText className="h-3.5 w-3.5 text-ai shrink-0" />
+          <span className="text-xs font-semibold truncate">{analysis.fileName}</span>
+        </div>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">
+          {analysis.pages} pag · RAG indicizzato
+        </span>
+      </div>
+      <ul className="divide-y divide-border">
+        {analysis.findings.map((f, i) => {
+          const s = sevMap[f.severity];
+          return (
+            <li key={i} className="px-4 py-2.5 flex items-start gap-3">
+              <span className={`mt-1.5 h-1.5 w-1.5 rounded-full ${s.dot} shrink-0`} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium">{f.label}</span>
+                  <span className={`text-[10px] uppercase tracking-wider font-medium ${s.cls}`}>
+                    {s.label}
+                  </span>
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">{f.detail}</div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="px-4 py-2.5 border-t border-border bg-muted/30 flex items-center justify-between">
+        <span className="text-[10px] text-muted-foreground">Analisi automatica · cross-check con capitolato attivo</span>
+        <button
+          onClick={() => toast.success("Sintesi esportata", { description: "Report PDF generato e archiviato." })}
+          className="text-[11px] px-2.5 py-1 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition flex items-center gap-1"
+        >
+          <ArrowUpRight className="h-3 w-3" />
+          Esporta sintesi
+        </button>
+      </div>
+    </div>
+  );
+}
+
 
 function RichText({ content }: { content: string }) {
   // Tiny markdown: **bold**, _italic_, paragraphs.
