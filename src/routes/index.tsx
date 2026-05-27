@@ -458,6 +458,10 @@ function ChatPanel({
   onSend,
   thinking,
   scrollRef,
+  pendingAttachment,
+  clearAttachment,
+  fileInputRef,
+  onFilePick,
 }: {
   messages: Message[];
   input: string;
@@ -465,6 +469,10 @@ function ChatPanel({
   onSend: (e?: React.FormEvent) => void;
   thinking: boolean;
   scrollRef: React.RefObject<HTMLDivElement | null>;
+  pendingAttachment: Attachment | null;
+  clearAttachment: () => void;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  onFilePick: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }) {
   return (
     <section className="rounded-xl bg-card border border-border shadow-elegant flex flex-col h-[calc(100vh-96px)] overflow-hidden">
