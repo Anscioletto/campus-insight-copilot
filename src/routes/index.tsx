@@ -84,9 +84,17 @@ const knowledgeFiles = [
   { name: "Trascrizione_Incontro_Responsabile.md", tag: "Trascrizione", icon: FileCode, color: "text-violet-600", active: true },
 ];
 
+type Attachment = { name: string; size: number; type: string };
+
 type Message =
-  | { role: "user"; content: string }
-  | { role: "assistant"; content: string; table?: NcRow[] };
+  | { role: "user"; content: string; attachment?: Attachment }
+  | { role: "assistant"; content: string; table?: NcRow[]; analysis?: DocAnalysis };
+
+type DocAnalysis = {
+  fileName: string;
+  pages: number;
+  findings: { label: string; detail: string; severity: "ok" | "warn" | "crit" }[];
+};
 
 type NcRow = { field: string; value: string; badge?: boolean };
 
@@ -171,31 +179,77 @@ function Dashboard() {
   const [thinking, setThinking] = useState(false);
   const [files, setFiles] = useState(knowledgeFiles.map((f) => ({ ...f })));
   const [whysOpen, setWhysOpen] = useState(false);
+  const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, thinking]);
 
+  const analyzeDocument = (att: Attachment): DocAnalysis => {
+    const ext = att.name.split(".").pop()?.toLowerCase() ?? "";
+    const isCapitolato = /capitolato|offerta|contratto/i.test(att.name);
+    return {
+      fileName: att.name,
+      pages: Math.max(3, Math.round(att.size / 18000)),
+      findings: isCapitolato
+        ? [
+            { label: "Frequenze di erogazione", severity: "ok", detail: "Tabella SLA estratta — 47 voci conformi a UNI EN 13549." },
+            { label: "Penali contrattuali", severity: "warn", detail: "Art. 12 — clausola di penale ambigua su ritardo > 4h." },
+            { label: "Sicurezza & DUVRI", severity: "ok", detail: "DUVRI allegato, valutazione rischi presente." },
+            { label: "Lacuna rilevata", severity: "crit", detail: "Manca procedura di reperibilità (collegabile a NC-2026-0147)." },
+          ]
+        : [
+            { label: "Tipo documento", severity: "ok", detail: "Classificato come evidenza operativa / verbale di sopralluogo." },
+            { label: "Entità riconosciute", severity: "ok", detail: "3 siti, 2 servizi, 1 operatore economico identificati." },
+            { label: "Coerenza con capitolato", severity: "warn", detail: "2 punti richiedono cross-check con Art. 4.2." },
+          ],
+    };
+  };
+
   const handleSend = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!input.trim()) return;
-    const userMsg: Message = { role: "user", content: input };
+    if (!input.trim() && !pendingAttachment) return;
+    const att = pendingAttachment;
+    const userContent = input.trim() || (att ? `Analizza questo documento: **${att.name}**` : "");
+    const userMsg: Message = { role: "user", content: userContent, attachment: att ?? undefined };
     setMessages((m) => [...m, userMsg]);
-    const q = input;
     setInput("");
+    setPendingAttachment(null);
     setThinking(true);
     setTimeout(() => {
       setThinking(false);
-      setMessages((m) => [
-        ...m,
-        {
-          role: "assistant",
-          content: `Ho consultato i ${files.filter((f) => f.active).length} documenti attivi nella RAG Memory. In riferimento a "${q.slice(0, 60)}${q.length > 60 ? "…" : ""}", la procedura di riferimento è descritta nel **Processo qualità.docx** §3.4. Posso generare una scheda di audit, una NC o un report sintetico — dimmi come procedere.`,
-        },
-      ]);
-      toast.success("Risposta generata", { description: "AI Co-Pilot ha consultato la RAG Memory." });
+      if (att) {
+        const analysis = analyzeDocument(att);
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            content: `Ho processato **${att.name}** ed eseguito l'estrazione semantica completa. Il documento è stato indicizzato nella RAG Memory e correlato ai capitolati attivi. Ecco la sintesi:`,
+            analysis,
+          },
+        ]);
+        toast.success("Documento analizzato", { description: `${att.name} indicizzato nella RAG Memory.` });
+      } else {
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            content: `Ho consultato i ${files.filter((f) => f.active).length} documenti attivi nella RAG Memory. In riferimento a "${userContent.slice(0, 60)}${userContent.length > 60 ? "…" : ""}", la procedura di riferimento è descritta nel **Processo qualità.docx** §3.4. Posso generare una scheda di audit, una NC o un report sintetico — dimmi come procedere.`,
+          },
+        ]);
+        toast.success("Risposta generata", { description: "AI Co-Pilot ha consultato la RAG Memory." });
+      }
     }, 1100);
+  };
+
+  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setPendingAttachment({ name: f.name, size: f.size, type: f.type });
+    toast("Documento allegato", { description: `${f.name} pronto per l'analisi.` });
+    e.target.value = "";
   };
 
   const toggleFile = (i: number) => {
@@ -218,6 +272,10 @@ function Dashboard() {
             onSend={handleSend}
             thinking={thinking}
             scrollRef={scrollRef}
+            pendingAttachment={pendingAttachment}
+            clearAttachment={() => setPendingAttachment(null)}
+            fileInputRef={fileInputRef}
+            onFilePick={handleFilePick}
           />
           <RightPanel files={files} toggleFile={toggleFile} whysOpen={whysOpen} setWhysOpen={setWhysOpen} />
         </div>
@@ -400,6 +458,10 @@ function ChatPanel({
   onSend,
   thinking,
   scrollRef,
+  pendingAttachment,
+  clearAttachment,
+  fileInputRef,
+  onFilePick,
 }: {
   messages: Message[];
   input: string;
@@ -407,6 +469,10 @@ function ChatPanel({
   onSend: (e?: React.FormEvent) => void;
   thinking: boolean;
   scrollRef: React.RefObject<HTMLDivElement | null>;
+  pendingAttachment: Attachment | null;
+  clearAttachment: () => void;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  onFilePick: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }) {
   return (
     <section className="rounded-xl bg-card border border-border shadow-elegant flex flex-col h-[calc(100vh-96px)] overflow-hidden">
@@ -450,7 +516,34 @@ function ChatPanel({
       </div>
 
       <form onSubmit={onSend} className="p-3 border-t border-border">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx,.pptx,image/*"
+          onChange={onFilePick}
+          className="hidden"
+        />
         <div className="rounded-xl border border-border bg-surface focus-within:border-ring focus-within:shadow-glow transition-all">
+          {pendingAttachment && (
+            <div className="mx-3 mt-3 flex items-center gap-2.5 p-2 rounded-lg border border-ai/30 bg-ai/5">
+              <div className="h-8 w-8 rounded-md bg-gradient-ai flex items-center justify-center shrink-0">
+                <FileText className="h-4 w-4 text-ai-foreground" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium truncate">{pendingAttachment.name}</div>
+                <div className="text-[10px] text-muted-foreground">
+                  {(pendingAttachment.size / 1024).toFixed(1)} KB · pronto per l'analisi AI
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={clearAttachment}
+                className="text-[11px] px-2 py-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition"
+              >
+                Rimuovi
+              </button>
+            </div>
+          )}
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -461,7 +554,11 @@ function ChatPanel({
               }
             }}
             rows={2}
-            placeholder="Chiedi al Co-Pilot · es. 'Genera report audit settimanale Blocco Aule F'…"
+            placeholder={
+              pendingAttachment
+                ? "Aggiungi un'istruzione opzionale o premi Invia per analizzare il documento…"
+                : "Chiedi al Co-Pilot · es. 'Genera report audit settimanale Blocco Aule F'…"
+            }
             className="w-full px-4 pt-3 pb-2 bg-transparent text-sm placeholder:text-muted-foreground/70 outline-none resize-none"
           />
           <div className="flex items-center justify-between px-2 pb-2">
@@ -476,22 +573,22 @@ function ChatPanel({
               </button>
               <button
                 type="button"
-                onClick={() => toast("Allegato", { description: "Carica foto del sopralluogo o documenti." })}
-                className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition"
-                title="Allega"
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 rounded-md text-muted-foreground hover:text-ai hover:bg-ai/10 transition"
+                title="Allega documento per analisi AI"
               >
                 <Paperclip className="h-4 w-4" />
               </button>
               <span className="text-[10px] text-muted-foreground ml-1 hidden sm:inline">
-                Shift+Enter per andare a capo
+                {pendingAttachment ? "Analisi semantica automatica" : "Shift+Enter per andare a capo"}
               </span>
             </div>
             <button
               type="submit"
-              disabled={!input.trim()}
+              disabled={!input.trim() && !pendingAttachment}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-gradient-primary text-primary-foreground text-xs font-medium shadow-elegant disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition"
             >
-              Invia
+              {pendingAttachment ? "Analizza" : "Invia"}
               <Send className="h-3 w-3" />
             </button>
           </div>
@@ -505,8 +602,21 @@ function MessageBubble({ message }: { message: Message }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[78%] rounded-2xl rounded-tr-sm bg-primary text-primary-foreground px-4 py-2.5 text-sm shadow-elegant">
-          {message.content}
+        <div className="max-w-[78%] flex flex-col items-end gap-1.5">
+          {message.attachment && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl rounded-br-sm bg-primary/10 border border-primary/20 text-primary text-xs">
+              <FileText className="h-3.5 w-3.5 shrink-0" />
+              <span className="font-medium truncate max-w-[220px]">{message.attachment.name}</span>
+              <span className="text-[10px] text-primary/70">
+                {(message.attachment.size / 1024).toFixed(1)} KB
+              </span>
+            </div>
+          )}
+          {message.content && (
+            <div className="rounded-2xl rounded-tr-sm bg-primary text-primary-foreground px-4 py-2.5 text-sm shadow-elegant">
+              <RichText content={message.content} />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -521,10 +631,62 @@ function MessageBubble({ message }: { message: Message }) {
           <RichText content={message.content} />
         </div>
         {message.table && <NcTable rows={message.table} />}
+        {message.analysis && <DocAnalysisCard analysis={message.analysis} />}
       </div>
     </div>
   );
 }
+
+function DocAnalysisCard({ analysis }: { analysis: DocAnalysis }) {
+  const sevMap = {
+    ok: { dot: "bg-success", label: "OK", cls: "text-success" },
+    warn: { dot: "bg-warning", label: "Attenzione", cls: "text-warning" },
+    crit: { dot: "bg-destructive", label: "Critico", cls: "text-destructive" },
+  };
+  return (
+    <div className="rounded-xl border border-border bg-surface overflow-hidden shadow-elegant">
+      <div className="px-4 py-2.5 border-b border-border bg-gradient-to-r from-ai/5 to-primary/5 flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0">
+          <FileText className="h-3.5 w-3.5 text-ai shrink-0" />
+          <span className="text-xs font-semibold truncate">{analysis.fileName}</span>
+        </div>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">
+          {analysis.pages} pag · RAG indicizzato
+        </span>
+      </div>
+      <ul className="divide-y divide-border">
+        {analysis.findings.map((f, i) => {
+          const s = sevMap[f.severity];
+          return (
+            <li key={i} className="px-4 py-2.5 flex items-start gap-3">
+              <span className={`mt-1.5 h-1.5 w-1.5 rounded-full ${s.dot} shrink-0`} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium">{f.label}</span>
+                  <span className={`text-[10px] uppercase tracking-wider font-medium ${s.cls}`}>
+                    {s.label}
+                  </span>
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">{f.detail}</div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="px-4 py-2.5 border-t border-border bg-muted/30 flex items-center justify-between">
+        <span className="text-[10px] text-muted-foreground">Analisi automatica · cross-check con capitolato attivo</span>
+        <button
+          onClick={() => toast.success("Sintesi esportata", { description: "Report PDF generato e archiviato." })}
+          className="text-[11px] px-2.5 py-1 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition flex items-center gap-1"
+        >
+          <ArrowUpRight className="h-3 w-3" />
+          Esporta sintesi
+        </button>
+      </div>
+    </div>
+  );
+}
+
 
 function RichText({ content }: { content: string }) {
   // Tiny markdown: **bold**, _italic_, paragraphs.
