@@ -179,31 +179,77 @@ function Dashboard() {
   const [thinking, setThinking] = useState(false);
   const [files, setFiles] = useState(knowledgeFiles.map((f) => ({ ...f })));
   const [whysOpen, setWhysOpen] = useState(false);
+  const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, thinking]);
 
+  const analyzeDocument = (att: Attachment): DocAnalysis => {
+    const ext = att.name.split(".").pop()?.toLowerCase() ?? "";
+    const isCapitolato = /capitolato|offerta|contratto/i.test(att.name);
+    return {
+      fileName: att.name,
+      pages: Math.max(3, Math.round(att.size / 18000)),
+      findings: isCapitolato
+        ? [
+            { label: "Frequenze di erogazione", severity: "ok", detail: "Tabella SLA estratta — 47 voci conformi a UNI EN 13549." },
+            { label: "Penali contrattuali", severity: "warn", detail: "Art. 12 — clausola di penale ambigua su ritardo > 4h." },
+            { label: "Sicurezza & DUVRI", severity: "ok", detail: "DUVRI allegato, valutazione rischi presente." },
+            { label: "Lacuna rilevata", severity: "crit", detail: "Manca procedura di reperibilità (collegabile a NC-2026-0147)." },
+          ]
+        : [
+            { label: "Tipo documento", severity: "ok", detail: "Classificato come evidenza operativa / verbale di sopralluogo." },
+            { label: "Entità riconosciute", severity: "ok", detail: "3 siti, 2 servizi, 1 operatore economico identificati." },
+            { label: "Coerenza con capitolato", severity: "warn", detail: "2 punti richiedono cross-check con Art. 4.2." },
+          ],
+    };
+  };
+
   const handleSend = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!input.trim()) return;
-    const userMsg: Message = { role: "user", content: input };
+    if (!input.trim() && !pendingAttachment) return;
+    const att = pendingAttachment;
+    const userContent = input.trim() || (att ? `Analizza questo documento: **${att.name}**` : "");
+    const userMsg: Message = { role: "user", content: userContent, attachment: att ?? undefined };
     setMessages((m) => [...m, userMsg]);
-    const q = input;
     setInput("");
+    setPendingAttachment(null);
     setThinking(true);
     setTimeout(() => {
       setThinking(false);
-      setMessages((m) => [
-        ...m,
-        {
-          role: "assistant",
-          content: `Ho consultato i ${files.filter((f) => f.active).length} documenti attivi nella RAG Memory. In riferimento a "${q.slice(0, 60)}${q.length > 60 ? "…" : ""}", la procedura di riferimento è descritta nel **Processo qualità.docx** §3.4. Posso generare una scheda di audit, una NC o un report sintetico — dimmi come procedere.`,
-        },
-      ]);
-      toast.success("Risposta generata", { description: "AI Co-Pilot ha consultato la RAG Memory." });
+      if (att) {
+        const analysis = analyzeDocument(att);
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            content: `Ho processato **${att.name}** ed eseguito l'estrazione semantica completa. Il documento è stato indicizzato nella RAG Memory e correlato ai capitolati attivi. Ecco la sintesi:`,
+            analysis,
+          },
+        ]);
+        toast.success("Documento analizzato", { description: `${att.name} indicizzato nella RAG Memory.` });
+      } else {
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            content: `Ho consultato i ${files.filter((f) => f.active).length} documenti attivi nella RAG Memory. In riferimento a "${userContent.slice(0, 60)}${userContent.length > 60 ? "…" : ""}", la procedura di riferimento è descritta nel **Processo qualità.docx** §3.4. Posso generare una scheda di audit, una NC o un report sintetico — dimmi come procedere.`,
+          },
+        ]);
+        toast.success("Risposta generata", { description: "AI Co-Pilot ha consultato la RAG Memory." });
+      }
     }, 1100);
+  };
+
+  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setPendingAttachment({ name: f.name, size: f.size, type: f.type });
+    toast("Documento allegato", { description: `${f.name} pronto per l'analisi.` });
+    e.target.value = "";
   };
 
   const toggleFile = (i: number) => {
