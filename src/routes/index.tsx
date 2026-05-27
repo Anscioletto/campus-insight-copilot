@@ -272,6 +272,10 @@ function Dashboard() {
             onSend={handleSend}
             thinking={thinking}
             scrollRef={scrollRef}
+            pendingAttachment={pendingAttachment}
+            clearAttachment={() => setPendingAttachment(null)}
+            fileInputRef={fileInputRef}
+            onFilePick={handleFilePick}
           />
           <RightPanel files={files} toggleFile={toggleFile} whysOpen={whysOpen} setWhysOpen={setWhysOpen} />
         </div>
