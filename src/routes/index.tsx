@@ -516,7 +516,34 @@ function ChatPanel({
       </div>
 
       <form onSubmit={onSend} className="p-3 border-t border-border">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx,.pptx,image/*"
+          onChange={onFilePick}
+          className="hidden"
+        />
         <div className="rounded-xl border border-border bg-surface focus-within:border-ring focus-within:shadow-glow transition-all">
+          {pendingAttachment && (
+            <div className="mx-3 mt-3 flex items-center gap-2.5 p-2 rounded-lg border border-ai/30 bg-ai/5">
+              <div className="h-8 w-8 rounded-md bg-gradient-ai flex items-center justify-center shrink-0">
+                <FileText className="h-4 w-4 text-ai-foreground" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium truncate">{pendingAttachment.name}</div>
+                <div className="text-[10px] text-muted-foreground">
+                  {(pendingAttachment.size / 1024).toFixed(1)} KB · pronto per l'analisi AI
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={clearAttachment}
+                className="text-[11px] px-2 py-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition"
+              >
+                Rimuovi
+              </button>
+            </div>
+          )}
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -527,7 +554,11 @@ function ChatPanel({
               }
             }}
             rows={2}
-            placeholder="Chiedi al Co-Pilot · es. 'Genera report audit settimanale Blocco Aule F'…"
+            placeholder={
+              pendingAttachment
+                ? "Aggiungi un'istruzione opzionale o premi Invia per analizzare il documento…"
+                : "Chiedi al Co-Pilot · es. 'Genera report audit settimanale Blocco Aule F'…"
+            }
             className="w-full px-4 pt-3 pb-2 bg-transparent text-sm placeholder:text-muted-foreground/70 outline-none resize-none"
           />
           <div className="flex items-center justify-between px-2 pb-2">
@@ -542,22 +573,22 @@ function ChatPanel({
               </button>
               <button
                 type="button"
-                onClick={() => toast("Allegato", { description: "Carica foto del sopralluogo o documenti." })}
-                className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition"
-                title="Allega"
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 rounded-md text-muted-foreground hover:text-ai hover:bg-ai/10 transition"
+                title="Allega documento per analisi AI"
               >
                 <Paperclip className="h-4 w-4" />
               </button>
               <span className="text-[10px] text-muted-foreground ml-1 hidden sm:inline">
-                Shift+Enter per andare a capo
+                {pendingAttachment ? "Analisi semantica automatica" : "Shift+Enter per andare a capo"}
               </span>
             </div>
             <button
               type="submit"
-              disabled={!input.trim()}
+              disabled={!input.trim() && !pendingAttachment}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-gradient-primary text-primary-foreground text-xs font-medium shadow-elegant disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition"
             >
-              Invia
+              {pendingAttachment ? "Analizza" : "Invia"}
               <Send className="h-3 w-3" />
             </button>
           </div>
