@@ -84,9 +84,17 @@ const knowledgeFiles = [
   { name: "Trascrizione_Incontro_Responsabile.md", tag: "Trascrizione", icon: FileCode, color: "text-violet-600", active: true },
 ];
 
+type Attachment = { name: string; size: number; type: string };
+
 type Message =
-  | { role: "user"; content: string }
-  | { role: "assistant"; content: string; table?: NcRow[] };
+  | { role: "user"; content: string; attachment?: Attachment }
+  | { role: "assistant"; content: string; table?: NcRow[]; analysis?: DocAnalysis };
+
+type DocAnalysis = {
+  fileName: string;
+  pages: number;
+  findings: { label: string; detail: string; severity: "ok" | "warn" | "crit" }[];
+};
 
 type NcRow = { field: string; value: string; badge?: boolean };
 
